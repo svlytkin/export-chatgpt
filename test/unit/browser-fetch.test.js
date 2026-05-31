@@ -6,7 +6,13 @@ const NAME = '__Secure-next-auth.session-token';
 
 function mockCtx() {
   const added = [];
-  return { added, addCookies: async (cookies) => { added.push(...cookies); } };
+  const cleared = [];
+  return {
+    added,
+    cleared,
+    addCookies: async (cookies) => { added.push(...cookies); },
+    clearCookies: async (filter) => { cleared.push(filter); },
+  };
 }
 
 describe('injectSessionCookie', () => {
@@ -25,7 +31,16 @@ describe('injectSessionCookie', () => {
     expect(headers.Cookie).toBeUndefined();
   });
 
-  test('keeps a small token as a single unsuffixed cookie', async () => {
+  test('evicts a stale base-name cookie before injecting chunks', async () => {
+    const ctx = mockCtx();
+    const headers = { Cookie: `${NAME}=${'x'.repeat(5000)}` };
+
+    await injectSessionCookie(ctx, headers);
+
+    expect(ctx.cleared).toEqual([{ name: NAME }]);
+  });
+
+  test('keeps a small token as a single unsuffixed cookie without clearing', async () => {
     const ctx = mockCtx();
     const value = 'short-token';
     const headers = { Cookie: `${NAME}=${value}` };
@@ -35,9 +50,20 @@ describe('injectSessionCookie', () => {
     expect(ctx.added).toHaveLength(1);
     expect(ctx.added[0].name).toBe(NAME);
     expect(ctx.added[0].value).toBe(value);
+    expect(ctx.cleared).toHaveLength(0); // non-chunked needs no eviction
   });
 
-  test('marks chunks Secure + httpOnly for the __Secure- cookie prefix', async () => {
+  test('preserves other cookies in the header, stripping only the session token', async () => {
+    const ctx = mockCtx();
+    const headers = { Cookie: `cf_clearance=abc; ${NAME}=tok; oai-sc=def` };
+
+    await injectSessionCookie(ctx, headers);
+
+    expect(ctx.added.map(c => c.value).join('')).toBe('tok');
+    expect(headers.Cookie).toBe('cf_clearance=abc; oai-sc=def');
+  });
+
+  test('marks chunks Secure + httpOnly with the host derived from CONFIG.baseUrl', async () => {
     const ctx = mockCtx();
     const headers = { Cookie: `${NAME}=${'x'.repeat(5000)}` };
 
