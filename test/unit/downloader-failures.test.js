@@ -30,6 +30,163 @@ describe('downloader failure cases', () => {
   });
 
   describe('downloadConversationFiles - failure cases', () => {
+    test('skips large conversation files before requesting a download URL', async () => {
+      const { downloadConversationFiles } = require('../../lib/downloader');
+      const { loadProgress } = require('../../lib/storage');
+
+      CONFIG.maxFileBytes = 5 * 1024 * 1024;
+      const conversationData = {
+        id: 'conv-1',
+        mapping: {
+          node1: {
+            message: {
+              content: {
+                content_type: 'multimodal_text',
+                parts: [
+                  {
+                    content_type: 'image_asset_pointer',
+                    asset_pointer: 'file-service://file-big',
+                    metadata: { file_name: 'big.png' },
+                    size_bytes: 6 * 1024 * 1024,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+
+      global.fetch = jest.fn();
+      const progress = loadProgress();
+      const count = await downloadConversationFiles('token', conversationData, tmpDir, progress);
+      const placeholder = JSON.parse(fs.readFileSync(path.join(tmpDir, 'file-big.skipped-download.png'), 'utf8'));
+
+      expect(count).toBe(0);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(progress.downloadedFileIds).not.toContain('file-big');
+      expect(progress.failedFileIds['file-big']).toBeUndefined();
+      expect(placeholder.status).toBe('not_downloaded');
+      expect(placeholder.reason).toBe('size_limit');
+      expect(placeholder.fileId).toBe('file-big');
+      expect(progress.skippedFileIds['file-big']).toEqual({
+        reason: 'size_limit',
+        type: 'image',
+        conversationId: 'conv-1',
+        sizeBytes: 6 * 1024 * 1024,
+        maxFileBytes: 5 * 1024 * 1024,
+        metadata: { file_name: 'big.png' },
+      });
+    });
+
+    test('downloads conversation files below the configured size limit', async () => {
+      const { downloadConversationFiles } = require('../../lib/downloader');
+      const { loadProgress } = require('../../lib/storage');
+
+      CONFIG.maxFileBytes = 5 * 1024 * 1024;
+      const conversationData = {
+        id: 'conv-1',
+        mapping: {
+          node1: {
+            message: {
+              content: {
+                content_type: 'multimodal_text',
+                parts: [
+                  {
+                    content_type: 'image_asset_pointer',
+                    asset_pointer: 'file-service://file-small',
+                    metadata: {},
+                    size_bytes: 4 * 1024 * 1024,
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+
+      global.fetch = jest.fn().mockImplementation((url) => {
+        if (url.includes('/files/download/')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+              status: 'success',
+              download_url: 'https://cdn.example.com/small.png',
+              file_name: 'small.png',
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'image/png' },
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+        });
+      });
+
+      const progress = loadProgress();
+      const count = await downloadConversationFiles('token', conversationData, tmpDir, progress);
+
+      expect(count).toBe(1);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(progress.downloadedFileIds).toContain('file-small');
+      expect(progress.skippedFileIds['file-small']).toBeUndefined();
+    });
+
+    test('downloads conversation files with unknown size', async () => {
+      const { downloadConversationFiles } = require('../../lib/downloader');
+      const { loadProgress } = require('../../lib/storage');
+
+      CONFIG.maxFileBytes = 5 * 1024 * 1024;
+      const conversationData = {
+        id: 'conv-1',
+        mapping: {
+          node1: {
+            message: {
+              content: {
+                content_type: 'multimodal_text',
+                parts: [
+                  {
+                    content_type: 'image_asset_pointer',
+                    asset_pointer: 'file-service://file-unknown',
+                    metadata: {},
+                  },
+                ],
+              },
+            },
+          },
+        },
+      };
+
+      global.fetch = jest.fn().mockImplementation((url) => {
+        if (url.includes('/files/download/')) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({
+              status: 'success',
+              download_url: 'https://cdn.example.com/unknown.png',
+              file_name: 'unknown.png',
+            }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'image/png' },
+          arrayBuffer: () => Promise.resolve(new ArrayBuffer(100)),
+        });
+      });
+
+      const progress = loadProgress();
+      const count = await downloadConversationFiles('token', conversationData, tmpDir, progress);
+
+      expect(count).toBe(1);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(progress.downloadedFileIds).toContain('file-unknown');
+      expect(progress.skippedFileIds['file-unknown']).toBeUndefined();
+    });
+
     test('continues downloading other files when one file fails', async () => {
       const { downloadConversationFiles } = require('../../lib/downloader');
       const { loadProgress } = require('../../lib/storage');
@@ -420,6 +577,52 @@ describe('downloader failure cases', () => {
   });
 
   describe('downloadProjectFiles - auth verification', () => {
+    test('skips large project files before requesting a download URL', async () => {
+      const { downloadProjectFiles } = require('../../lib/downloader');
+      const { loadProgress } = require('../../lib/storage');
+
+      CONFIG.maxFileBytes = 5 * 1024 * 1024;
+      const project = {
+        id: 'proj-1',
+        name: 'Test Project',
+        files: [
+          {
+            file_id: 'project-big',
+            name: 'huge.pdf',
+            type: 'application/pdf',
+            size: 6 * 1024 * 1024,
+          },
+        ],
+      };
+
+      global.fetch = jest.fn();
+      const progress = loadProgress();
+      const count = await downloadProjectFiles('token', project, progress);
+      const placeholderPath = path.join(PATHS.projectsDir, 'Test_Project', 'files', 'project-big.skipped-download.pdf');
+      const placeholder = JSON.parse(fs.readFileSync(placeholderPath, 'utf8'));
+
+      expect(count).toBe(0);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(progress.downloadedFileIds).not.toContain('project-big');
+      expect(progress.failedFileIds['project-big']).toBeUndefined();
+      expect(placeholder.status).toBe('not_downloaded');
+      expect(placeholder.reason).toBe('size_limit');
+      expect(placeholder.fileId).toBe('project-big');
+      expect(progress.skippedFileIds['project-big']).toEqual({
+        reason: 'size_limit',
+        type: 'project_file',
+        conversationId: null,
+        projectId: 'proj-1',
+        projectName: 'Test Project',
+        sizeBytes: 6 * 1024 * 1024,
+        maxFileBytes: 5 * 1024 * 1024,
+        metadata: {
+          name: 'huge.pdf',
+          type: 'application/pdf',
+        },
+      });
+    });
+
     test('on 403 with valid token, skips file and marks access_denied', async () => {
       const { downloadProjectFiles } = require('../../lib/downloader');
       const { loadProgress } = require('../../lib/storage');
@@ -517,6 +720,26 @@ describe('downloader failure cases', () => {
   });
 
   describe('retryPendingFiles - terminal failures', () => {
+    test('does not retry files skipped by size limit', async () => {
+      const { retryPendingFiles } = require('../../lib/downloader');
+      const { saveIndex, loadProgress } = require('../../lib/storage');
+
+      saveIndex(new Map([
+        ['conv-1', {
+          id: 'conv-1',
+          files: [{ fileId: 'file-big', type: 'image' }],
+        }],
+      ]));
+      global.fetch = jest.fn();
+
+      const progress = loadProgress();
+      progress.skippedFileIds['file-big'] = { reason: 'size_limit' };
+      const count = await retryPendingFiles('token', progress);
+
+      expect(count).toBe(0);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
     test('marks HTTP 404 download-url failures as file_not_found', async () => {
       const { retryPendingFiles } = require('../../lib/downloader');
       const { saveIndex, loadProgress } = require('../../lib/storage');
