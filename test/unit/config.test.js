@@ -29,6 +29,7 @@ describe('config', () => {
       expect(CONFIG.showSummary).toBe(true);
       expect(CONFIG.showDonate).toBe(true);
       expect(CONFIG.maxConversations).toBeNull();
+      expect(CONFIG.maxFileBytes).toBeNull();
       expect(CONFIG.convFilter).toBeNull();
       expect(CONFIG.projFilter).toBeNull();
     });
