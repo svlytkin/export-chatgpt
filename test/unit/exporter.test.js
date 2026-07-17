@@ -296,6 +296,7 @@ describe('exporter', () => {
       CONFIG.exportFormat = 'both';
       const conv = { ...makeConv('chat-missing', 1000), _archived: false };
       fs.writeFileSync(PATHS.indexFile, JSON.stringify([conv]));
+      fs.writeFileSync(path.join(CONFIG.outputDir, 'artifact-manifest.json'), '{}');
       const progress = { indexingComplete: true, projects: {}, failedFileIds: {} };
       const summary = {
         regular: {
