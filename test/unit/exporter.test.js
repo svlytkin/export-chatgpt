@@ -291,6 +291,31 @@ describe('exporter', () => {
       ]);
     });
 
+    test('result has no artifacts manifest and pending comes straight from artifacts', async () => {
+      const { buildExportResult } = await loadExporterWithIndex([]);
+      CONFIG.exportFormat = 'both';
+      const conv = { ...makeConv('chat-missing', 1000), _archived: false };
+      fs.writeFileSync(PATHS.indexFile, JSON.stringify([conv]));
+      const progress = { indexingComplete: true, projects: {}, failedFileIds: {} };
+      const summary = {
+        regular: {
+          writtenIds: [], failed: [],
+          activeIndex: { mode: 'incremental', completion: 'update_horizon_closed', known: 1 },
+        },
+        projects: { writtenIds: [], failed: [], incrementalCompletion: 'not_run' },
+      };
+
+      const result = buildExportResult(progress, summary, { userId: 'user-test' });
+
+      expect(result).not.toHaveProperty('artifacts_manifest');
+      expect(fs.existsSync(path.join(CONFIG.outputDir, 'artifact-manifest.json'))).toBe(false);
+      expect(result.outcome).toBe('partial');
+      expect(result.conversations.pending_count).toBe(1);
+      expect(result.conversations.pending_sample).toEqual([
+        { id: 'chat-missing', reason: 'JSON/Markdown pair is missing' },
+      ]);
+    });
+
     test('active_index known excludes project-only conversations', async () => {
       const active = { ...makeConv('active-chat', 1000), _archived: false };
       const projectOnly = { ...makeConv('project-chat', 900), _project_id: 'project-1' };
