@@ -237,11 +237,12 @@ describe('export flow (e2e)', () => {
     });
 
     const { run } = require('../../lib/exporter');
-    const summary = await run('fake-token');
+    const result = await run('fake-token', { userId: 'user-test' });
 
-    expect(summary).toBeDefined();
-    expect(summary.regular.success).toBe(1);
-    expect(summary.projects.count).toBe(0);
+    expect(result).toBeDefined();
+    expect(result.outcome).toBe('complete');
+    expect(result.conversations.written_ids).toEqual(['conv-001-aaaa-bbbb']);
+    expect(result.projects.requested).toBe(false);
 
     global.fetch.mockRestore();
   });

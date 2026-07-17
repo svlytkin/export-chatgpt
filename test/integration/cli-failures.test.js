@@ -27,6 +27,15 @@ describe('CLI failure cases', () => {
     const { stdout, exitCode } = run(['--non-interactive']);
     expect(exitCode).toBe(1);
     expect(stdout).toContain('--non-interactive requires --bearer or --token');
+    const envelopes = stdout.split('\n').filter(line => line.startsWith('EXPORT_CHATGPT_RESULT_V1 '));
+    expect(envelopes).toHaveLength(1);
+    expect(JSON.parse(envelopes[0].slice('EXPORT_CHATGPT_RESULT_V1 '.length))).toEqual({
+      outcome: 'failed',
+      failure: {
+        kind: 'auth',
+        message: 'Error: --non-interactive requires --bearer or --token (or their env vars).',
+      },
+    });
   });
 
   test('exits with error for invalid bearer token (auth failure)', () => {

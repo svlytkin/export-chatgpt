@@ -152,7 +152,7 @@ describe('export flow - failure cases (e2e)', () => {
     expect(jsonFiles.length).toBe(1);
   });
 
-  test('run() prints summary even on auth error before exiting', async () => {
+  test('run() prints summary and propagates a controlled auth error', async () => {
     CONFIG.includeProjects = false;
     CONFIG.showSummary = true;
 
@@ -160,19 +160,13 @@ describe('export flow - failure cases (e2e)', () => {
       ok: false, status: 401, statusText: 'Unauthorized',
     });
 
-    // Mock process.exit to prevent actual exit
-    const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
-
     const { run } = require('../../lib/exporter');
 
-    await expect(run('expired-token')).rejects.toThrow('process.exit called');
+    await expect(run('expired-token')).rejects.toMatchObject({ authError: true });
 
     const logCalls = console.log.mock.calls.map(c => c.join(' ')).join('\n');
     expect(logCalls).toContain('Export Complete!');
 
-    mockExit.mockRestore();
   });
 
   test('empty conversation list results in zero counts', async () => {
@@ -185,7 +179,9 @@ describe('export flow - failure cases (e2e)', () => {
     const { loadProgress } = require('../../lib/storage');
 
     const result = await exportConversations('fake-token', loadProgress());
-    expect(result).toEqual({ success: 0, skip: 0, update: 0, error: 0, fileCount: 0 });
+    expect(result).toMatchObject({ success: 0, skip: 0, update: 0, error: 0, fileCount: 0 });
+    expect(result.writtenIds).toEqual([]);
+    expect(result.failed).toEqual([]);
   });
 
   test('conversation with no mapping produces valid but empty markdown', async () => {
