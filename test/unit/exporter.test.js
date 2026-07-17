@@ -400,6 +400,24 @@ describe('exporter', () => {
       CONFIG.throttleMs = 0;
       initPaths();
 
+      const initialProjects = typeof projects === 'function' ? projects(2) : projects;
+      fs.writeFileSync(PATHS.progressFile, JSON.stringify({
+        baselineSemanticsVersion: 1,
+        indexingComplete: true,
+        lastOffset: 0,
+        downloadedIds: [],
+        projectsIndexingComplete: true,
+        projectsLastCursor: null,
+        projects: Object.fromEntries(initialProjects.map(project => [project.id, {
+          indexingComplete: true,
+          lastCursor: null,
+          downloadedIds: [],
+        }])),
+        downloadedFileIds: [],
+        failedFileIds: {},
+        skippedFileIds: {},
+      }));
+
       jest.spyOn(console, 'log').mockImplementation();
       jest.spyOn(process.stdout, 'write').mockImplementation();
 
@@ -599,8 +617,14 @@ describe('exporter', () => {
         },
       ]);
       CONFIG.maxConversations = 10;
+      fs.writeFileSync(PATHS.indexFile, '[]');
 
-      await expect(run('token')).rejects.toThrow(/PROJECT_PREVIEW_LIMIT_EXCEEDED/);
+      const result = await run('token');
+
+      expect(result).toMatchObject({
+        outcome: 'partial',
+        failure: { kind: 'horizon' },
+      });
 
       expect(fetchProjectList.mock.calls.map(call => call[2].conversationsPerGizmo)).toEqual([10, 15, 20, 25, 30, 35, 40, 45, 50]);
       expect(fetchConversation).not.toHaveBeenCalled();

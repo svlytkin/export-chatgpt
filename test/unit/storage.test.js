@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 
 describe('storage', () => {
-  let PATHS, ensureDir, loadIndex, saveIndex, loadProgress, saveProgress;
+  let PATHS, ensureBaselineSemantics, ensureDir, loadIndex, saveIndex, loadProgress, saveProgress;
   let tmpDir;
 
   beforeEach(() => {
@@ -18,7 +18,7 @@ describe('storage', () => {
     config.initPaths();
 
     ({ PATHS } = config);
-    ({ ensureDir, loadIndex, saveIndex, loadProgress, saveProgress } = require('../../lib/storage'));
+    ({ ensureBaselineSemantics, ensureDir, loadIndex, saveIndex, loadProgress, saveProgress } = require('../../lib/storage'));
   });
 
   afterEach(() => {
@@ -77,6 +77,7 @@ describe('storage', () => {
     test('returns default progress when no file exists', () => {
       const progress = loadProgress();
       expect(progress).toEqual({
+        baselineSemanticsVersion: 1,
         indexingComplete: false,
         lastOffset: 0,
         downloadedIds: [],
@@ -120,6 +121,42 @@ describe('storage', () => {
       expect(loaded.skippedFileIds).toEqual({});
       expect(loaded.projectsIndexingComplete).toBe(false);
       expect(loaded.projectsLastCursor).toBeNull();
+    });
+
+    test('upgrades legacy active and project baselines from the beginning', () => {
+      const progress = {
+        indexingComplete: true,
+        lastOffset: 84,
+        downloadedIds: [],
+        projectsIndexingComplete: true,
+        projectsLastCursor: 'project-page-3',
+        projects: {
+          alpha: { indexingComplete: true, lastCursor: 'chat-page-4', downloadedIds: ['c1'] },
+          beta: { indexingComplete: false, lastCursor: 'chat-page-2', downloadedIds: [] },
+        },
+        downloadedFileIds: [],
+        failedFileIds: {},
+        skippedFileIds: {},
+      };
+
+      expect(ensureBaselineSemantics(progress)).toBe(true);
+      expect(progress).toMatchObject({
+        baselineSemanticsVersion: 1,
+        indexingComplete: false,
+        lastOffset: 0,
+        projectsIndexingComplete: true,
+        projectsLastCursor: 'project-page-3',
+        projects: {
+          alpha: { indexingComplete: false, lastCursor: null, downloadedIds: ['c1'] },
+          beta: { indexingComplete: false, lastCursor: null, downloadedIds: [] },
+        },
+      });
+      expect(JSON.parse(fs.readFileSync(PATHS.progressFile, 'utf8'))).toMatchObject({
+        baselineSemanticsVersion: 1,
+        indexingComplete: false,
+        lastOffset: 0,
+      });
+      expect(ensureBaselineSemantics(progress)).toBe(false);
     });
 
     test('returns default for corrupted progress file', () => {

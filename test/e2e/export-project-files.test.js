@@ -119,14 +119,11 @@ describe('project-level file downloads (e2e)', () => {
     });
 
     const { run } = require('../../lib/exporter');
-    const summary = await run('fake-token');
+    const result = await run('fake-token', { userId: 'user-test' });
 
-    // Project should be counted
-    expect(summary.projects.count).toBe(1);
-    // No conversations were exported
-    expect(summary.projects.conversations).toBe(0);
-    // Project file should have been downloaded
-    expect(summary.projects.fileCount).toBeGreaterThanOrEqual(1);
+    expect(result.projects.requested).toBe(true);
+    expect(result.conversations.written_ids).toEqual([]);
+    expect(result.files.failed_count).toBe(0);
 
     // Verify the file download endpoint was actually called
     const fileDownloadCalls = global.fetch.mock.calls.filter(
@@ -204,13 +201,11 @@ describe('project-level file downloads (e2e)', () => {
     });
 
     const { run } = require('../../lib/exporter');
-    const summary = await run('fake-token');
+    const result = await run('fake-token', { userId: 'user-test' });
 
-    expect(summary.projects.count).toBe(1);
-    // Conversation was exported
-    expect(summary.projects.success).toBe(1);
-    // File was downloaded
-    expect(summary.projects.fileCount).toBeGreaterThanOrEqual(1);
+    expect(result.projects.requested).toBe(true);
+    expect(result.conversations.written_ids).toContain('conv-proj-001');
+    expect(result.files.failed_count).toBe(0);
 
     // Both conversation fetch and file download were called
     const convCalls = global.fetch.mock.calls.filter(
@@ -250,13 +245,12 @@ describe('project-level file downloads (e2e)', () => {
     });
 
     const { run } = require('../../lib/exporter');
-    const summary = await run('fake-token');
+    const result = await run('fake-token', { userId: 'user-test' });
 
-    expect(summary.projects.count).toBe(1);
-    expect(summary.projects.conversations).toBe(0);
-    expect(summary.projects.success).toBe(0);
-    expect(summary.projects.error).toBe(0);
-    expect(summary.projects.fileCount).toBe(0);
+    expect(result.projects.requested).toBe(true);
+    expect(result.conversations.written_ids).toEqual([]);
+    expect(result.conversations.failed_count).toBe(0);
+    expect(result.files.failed_count).toBe(0);
   });
 
   test('multiple projects: files downloaded for all including those with no conversations', async () => {
@@ -360,11 +354,10 @@ describe('project-level file downloads (e2e)', () => {
     });
 
     const { run } = require('../../lib/exporter');
-    const summary = await run('fake-token');
+    const result = await run('fake-token', { userId: 'user-test' });
 
-    expect(summary.projects.count).toBe(2);
-    // Only the active project had conversations
-    expect(summary.projects.success).toBe(1);
+    expect(result.projects.requested).toBe(true);
+    expect(result.conversations.written_ids).toContain('conv-active-001');
 
     // Both project files should have been downloaded
     const activeFileCalls = global.fetch.mock.calls.filter(

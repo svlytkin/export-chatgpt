@@ -160,7 +160,7 @@ describe('auth failure cases', () => {
         json: () => Promise.resolve({ user: 'test' }),
       });
       await expect(getAccessToken('bad-session-token'))
-        .rejects.toThrow(/Could not get access token/);
+        .rejects.toMatchObject({ authError: true });
     });
 
     test('throws on auth failure during session exchange', async () => {

@@ -253,6 +253,34 @@ describe('api', () => {
         expect.anything()
       );
     });
+
+    test('unconfirmed project baseline ignores the incremental three-page stop', async () => {
+      CONFIG.updateExisting = true;
+      const progress = makeProgress({
+        projects: {
+          'proj-1': {
+            name: 'Project One',
+            indexingComplete: false,
+            lastCursor: null,
+            downloadedIds: [],
+          },
+        },
+      });
+      const project = { id: 'proj-1', name: 'Project One' };
+      const repeated = [{ ...makeConv('conv-old', 1700001000), gizmo_id: 'proj-1' }];
+      mockFetchPages([
+        { items: repeated, cursor: 'page-2' },
+        { items: repeated, cursor: 'page-3' },
+        { items: repeated, cursor: 'page-4' },
+        { items: repeated, cursor: null },
+      ]);
+
+      await fetchProjectConversations('token', project, progress);
+
+      expect(global.fetch).toHaveBeenCalledTimes(4);
+      expect(progress.projects['proj-1'].indexingComplete).toBe(true);
+      expect(progress.projects['proj-1'].lastCursor).toBeNull();
+    });
   });
 
   describe('fetchConversationListIncremental — re-scan when indexingComplete', () => {
@@ -292,6 +320,24 @@ describe('api', () => {
       await fetchConversationListIncremental('token', existingIndex, progress);
 
       expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+
+    test('unconfirmed active baseline reads through unchanged pages to the real end', async () => {
+      const convs = Array.from({ length: 28 }, (_, i) => makeConv(`conv-${i}`, 1700001000 + i));
+      const existingIndex = new Map(convs.map(c => [c.id, c]));
+      const progress = makeProgress({ indexingComplete: false, lastOffset: 0 });
+
+      mockFetchPages([
+        { items: convs, total: 84, limit: 28, offset: 0 },
+        { items: convs, total: 84, limit: 28, offset: 28 },
+        { items: convs, total: 84, limit: 28, offset: 56 },
+        { items: [], total: 84, limit: 28, offset: 84 },
+      ]);
+
+      await fetchConversationListIncremental('token', existingIndex, progress);
+
+      expect(global.fetch).toHaveBeenCalledTimes(4);
+      expect(progress.indexingComplete).toBe(true);
     });
 
     test('finds new conversation and adds it to the index', async () => {
