@@ -317,6 +317,33 @@ describe('exporter', () => {
       ]);
     });
 
+    test('archived conversations do not pollute pending or required files', async () => {
+      const { buildExportResult } = await loadExporterWithIndex([]);
+      CONFIG.exportFormat = 'both';
+      CONFIG.downloadFiles = true;
+      CONFIG.downloadImages = true;
+      const archived = {
+        ...makeConv('chat-archived', 1000),
+        _archived: true,
+        files: [{ fileId: 'file-archived', type: 'image' }],
+      };
+      fs.writeFileSync(PATHS.indexFile, JSON.stringify([archived]));
+      const progress = { indexingComplete: true, projects: {}, failedFileIds: {} };
+      const summary = {
+        regular: {
+          writtenIds: [], failed: [],
+          activeIndex: { mode: 'incremental', completion: 'update_horizon_closed', known: 0 },
+        },
+        projects: { writtenIds: [], failed: [], incrementalCompletion: 'not_run' },
+      };
+
+      const result = buildExportResult(progress, summary, { userId: 'user-test' });
+
+      expect(result.outcome).toBe('complete');
+      expect(result.conversations.pending_count).toBe(0);
+      expect(result.files.failed_count).toBe(0);
+    });
+
     test('active_index known excludes project-only conversations', async () => {
       const active = { ...makeConv('active-chat', 1000), _archived: false };
       const projectOnly = { ...makeConv('project-chat', 900), _project_id: 'project-1' };
