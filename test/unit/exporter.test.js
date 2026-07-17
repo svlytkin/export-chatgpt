@@ -208,6 +208,99 @@ describe('exporter', () => {
       expect(conversationTimestamp({ update_time: '2023-11-14T22:13:22.000Z' })).toBe(1700000002);
     });
 
+    test('artifact metadata uses root JSON fields beyond 64 KiB and normalizes time', async () => {
+      const { collectExportedArtifactTimes } = await loadExporterWithIndex([]);
+      fs.mkdirSync(PATHS.jsonDir, { recursive: true });
+      fs.mkdirSync(PATHS.mdDir, { recursive: true });
+      const id = 'root-conversation-id';
+      fs.writeFileSync(path.join(PATHS.jsonDir, 'chat.json'), JSON.stringify({
+        mapping: { node: { id: 'nested-node-id', padding: 'x'.repeat(70000) } },
+        conversation_id: id,
+        update_time: 1700000000,
+      }));
+      fs.writeFileSync(path.join(PATHS.mdDir, 'chat.md'), [
+        '---',
+        `id: ${id}`,
+        'update_time: 2023-11-14T22:13:20.000Z',
+        '---',
+        '',
+      ].join('\n'));
+
+      const metadata = collectExportedArtifactTimes().get(id);
+
+      expect(metadata.atomic).toBe(true);
+      expect(metadata.json).toBe(1700000000);
+      expect(metadata.markdown).toBe('2023-11-14T22:13:20.000Z');
+      expect(collectExportedArtifactTimes().has('nested-node-id')).toBe(false);
+    });
+
+    test('format both treats different JSON and Markdown versions as pending', async () => {
+      const conversations = [makeConv('chat-atomic', 1000)];
+      const { exportConversations } = await loadExporterWithIndex(conversations);
+      CONFIG.updateExisting = true;
+      CONFIG.maxConversations = 10;
+      CONFIG.exportFormat = 'both';
+      fs.mkdirSync(PATHS.jsonDir, { recursive: true });
+      fs.mkdirSync(PATHS.mdDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(PATHS.jsonDir, 'chat.json'),
+        JSON.stringify(makeConv('chat-atomic', 1000))
+      );
+      fs.writeFileSync(path.join(PATHS.mdDir, 'chat.md'), [
+        '---', 'id: chat-atomic', 'update_time: 1970-01-01T00:16:41.000Z', '---', '',
+      ].join('\n'));
+
+      await exportConversations('token', { downloadedIds: ['chat-atomic'] });
+
+      expect(fetchConversation.mock.calls.map(call => call[1])).toEqual(['chat-atomic']);
+    });
+
+    test('result is partial when a required file is still missing after retries', async () => {
+      const { buildExportResult } = await loadExporterWithIndex([]);
+      CONFIG.exportFormat = 'both';
+      CONFIG.downloadFiles = true;
+      CONFIG.downloadImages = true;
+      fs.mkdirSync(PATHS.jsonDir, { recursive: true });
+      fs.mkdirSync(PATHS.mdDir, { recursive: true });
+      const conv = { ...makeConv('chat-file', 1000), _archived: false, files: [{ fileId: 'file-cdn', type: 'image' }] };
+      fs.writeFileSync(PATHS.indexFile, JSON.stringify([conv]));
+      fs.writeFileSync(path.join(PATHS.jsonDir, 'chat.json'), JSON.stringify(conv));
+      fs.writeFileSync(path.join(PATHS.mdDir, 'chat.md'), [
+        '---', 'id: chat-file', 'update_time: 1970-01-01T00:16:40.000Z', '---', '',
+      ].join('\n'));
+      const progress = {
+        indexingComplete: true,
+        projects: {},
+        failedFileIds: {},
+        _runFileErrors: { 'file-cdn': 'HTTP 500 after 3 attempts' },
+      };
+      const summary = {
+        regular: {
+          writtenIds: [], failed: [],
+          activeIndex: { mode: 'incremental', completion: 'update_horizon_closed', known: 1 },
+        },
+        projects: { writtenIds: [], failed: [], incrementalCompletion: 'not_run' },
+      };
+
+      const result = buildExportResult(progress, summary, { userId: 'user-test' });
+
+      expect(result.outcome).toBe('partial');
+      expect(result.files.failed_count).toBe(1);
+      expect(result.files.failed_sample).toEqual([
+        { id: 'file-cdn', reason: 'HTTP 500 after 3 attempts' },
+      ]);
+    });
+
+    test('active_index known excludes project-only conversations', async () => {
+      const active = { ...makeConv('active-chat', 1000), _archived: false };
+      const projectOnly = { ...makeConv('project-chat', 900), _project_id: 'project-1' };
+      const { exportConversations } = await loadExporterWithIndex([active, projectOnly]);
+
+      const result = await exportConversations('token', { downloadedIds: [] });
+
+      expect(result.activeIndex.known).toBe(1);
+    });
+
     test('update with max exports the freshest conversations by update_time', async () => {
       const { exportConversations } = await loadExporterWithIndex([
         makeConv('old', 100),
